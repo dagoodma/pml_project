@@ -1,0 +1,125 @@
+---
+title: "Practical Machine Learning Project"
+author: "David Goodman"
+output: html_document
+date: "`r Sys.Date()`"
+
+header-includes: \usepackage{graphicx}
+---
+
+## Introduction
+
+The purpose of this project was to classify excercise activity recorded from 5 movement sensors on human subjects. The activity must be placed into 1 of 5 categories. This is known as human activity recognition (HAR), which is a new field of research. The data used in this project is a subset of the data from: http://groupware.les.inf.puc-rio.br/har. A better discription is available in: Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements, which can be found on the website. 
+
+## Setup
+
+### Loading the Data into R
+
+The data provided was stored in a .csv file. The following code was used to load the raw data into a data frame called `Pml_raw`.
+
+```{r data_load, message = FALSE}
+# Load library for reading .csv file
+library(gdata)
+
+# Set working directory
+setwd("/Users/dagoodma/machinelearning/project/src")
+# Load the data and put it into a data frame
+mydata <- read.csv("../data/pml-training.csv")
+Pml_raw <- data.frame(mydata)
+```
+
+### Exploratory Analysis
+
+The first step was to perform exploratory analysis to look for relationships between variables. I found it difficult to look through all of the data because there were nearly 160 different variables. Values for some of the variables were `N/A` in most rows. Except for where the *new_window* column was "yes". This is described in more detail later. 
+
+I noticed a strong relationship between outcome (class) and the Euler angles (yaw, pitch, and roll) derived from the belt accelerometer. These variables are plotted below against index. Notice how the points are spread along the y-axis differently for each class. There appears to be a lot more variance in some values over others. This can be seen in the figures below.
+
+```{r fig.width = 9, fig.height = 5, fig.align = 'center', message = FALSE}
+library(ggplot2)
+library(gridExtra)
+br <- qplot(y=roll_belt,data=Pml_raw,colour=classe)
+bp <- qplot(y=pitch_belt,data=Pml_raw,colour=classe)
+by <- qplot(y=yaw_belt,data=Pml_raw,colour=classe)
+grid.arrange(br,bp,by,nrow=3)
+```
+
+Additionally, I noticed a very weak relationship between the dumbbell sensor data and the outcome. Below is a plot of dumbbell Euler angles vs index. Notice how all of the classes look similarly spread along the y-axis. This led me to believe that the dumbbell sensor contained less useful information.
+
+```{r fig.width = 9, fig.height = 5, fig.align = 'center', message = FALSE}
+library(ggplot2)
+library(gridExtra)
+dr <- qplot(y=roll_dumbbell,data=Pml_raw,colour=classe)
+dp <- qplot(y=pitch_dumbbell,data=Pml_raw,colour=classe)
+dy <- qplot(y=yaw_dumbbell,data=Pml_raw,colour=classe)
+grid.arrange(dr,dp,dy,nrow=3)
+```
+
+## Methods
+
+### Cleaning the Data
+
+The most important task in this project was to understand the data provided, and to prune and consolidate it. In order to compress the variables, I decided to use only the average Euler angle values recorded at each new window to build my predictor. This allowed me to create a much simpler model that took less time to compile. The code below shows how the data was pruned to grab only the desired columns and rows.
+
+```{r data_prune}
+# Load library for rename()
+library(plyr)
+
+# Use only new windows, to use average values across window
+inWinRow <- which(Pml_raw[,"new_window"] == "yes")
+
+# Find only the columns to use in model
+keepPatterns <- c("X", "^avg", "^total", "classe") # col name patterns
+inKeepCol <- unique(grep(paste(keepPatterns,collapse="|"), names(Pml_raw)), value=TRUE)
+
+# Keep only the windowed data and desired columns
+Pml <- Pml_raw[inWinRow,inKeepCol]
+
+# Rename columns called avg_* so that we can predict on test data, 
+# which is not in a window
+Pml <- rename(Pml, c("avg_roll_belt"="roll_belt", "avg_pitch_belt"="pitch_belt", "avg_yaw_belt"="yaw_belt",
+    "avg_roll_arm"="roll_arm", "avg_pitch_arm"="pitch_arm", "avg_yaw_arm"="yaw_arm",
+    "avg_roll_forearm"="roll_forearm", "avg_pitch_forearm"="pitch_forearm", "avg_yaw_forearm"="yaw_forearm",
+    "avg_roll_dumbbell"="roll_dumbbell", "avg_pitch_dumbbell"="pitch_dumbbell", "avg_yaw_dumbbell"="yaw_dumbbell"))
+
+# Print out pruned data frame names
+names(Pml)
+```
+
+### Building the Predictor
+
+Many attempts were made at producing an accurate predictor. I decided to use *random forests* to build my predictor, because it is supposedly a very accurate model for classification using regression. I also tried many other models. All of the code from previous attempts can be found in the _src/_ folder. The code for my final prediction algorithm can be seen below. I performed cross-validation by splitting the training data training (75%) and testing (25%) data. Caret's train function also performs bagging internally when training the random tree model.
+
+```{r build_model, message = FALSE}
+# Load libraries
+library(caret)
+
+# Partition data for cross-validation
+inTrain <- createDataPartition(y=Pml$classe, p=0.75, list=FALSE)
+training <- Pml[inTrain,]
+testing <- Pml[-inTrain,]
+
+# Build random forest model from training data
+modFit <- train(classe ~ ., method="rf", data=training, prox=TRUE)
+print(modFit)
+
+# Run on "sub-training" testing data
+test1Pred <- predict(modFit, newdata=testing)
+confusionMatrix(testing$classe, test1Pred)
+
+# Run on testing data to predict answers
+setwd("/Users/dagoodma/machinelearning/project/src")
+testdata <- read.csv("../data/pml-testing.csv")
+Pml_test <- data.frame(testdata)
+test2Pred <- predict(modFit, newdata=Pml_test)
+test2Pred
+```
+
+## Results
+
+Although my model has 100% accuracy on the training and sub-training test sets. However, when ran against the true test data, it predicted that all of the data was of class A. Infact, all of my attempts yielded predictors that always predicted class A. I think that the training data must be overfit, which would explain why there was 100% accuracy. I did not spend enough time exploring the data and using features to improve my predictor. When submitting my answers for the project, I got 7/20 right. This means that my predictor has only 35% accuracy on the test data. That's not very good.
+
+## Conclusion
+
+This project was very interesting. It showed me that you really do need to use a good amount of science to pick apart the data and find decent features to build a predictor with. Achieving good out of sample accuracy seems to be more difficult than I thought.
+
+I did learn a lot about big data and how to work with it inside of R. Also, learning rmarkdown was helpful. I was quite impressed with it actually. Previously, I have only used Latex to type up reports and documents.
