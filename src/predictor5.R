@@ -49,7 +49,17 @@ print(modFit)
 
 # Run on testing data
 test1Pred <- predict(modFit, newdata=testing)
-confusionMatrix(testing$classe, test1Pred)
+confList <- confusionMatrix(testing$classe, test1Pred)
+confList
+
+# Confusion heatmap
+axisLabels <- levels(test1Pred)
+confMat <- matrix(unlist(confList[2]), ncol=5, byrow=TRUE)
+colsum <- colSums(confMat)
+confMat <- confMat/colSums(confMat)
+image(1-confMat[,ncol(confMat):1],axes=FALSE,zlim=c(0,0.1))
+axis(2, at=seq(0,1,1/(length(axisLabels)-1)), labels=axisLabels[length(axisLabels):1])
+axis(1, side=3, at=seq(0,1,1/(length(axisLabels)-1)), labels=axisLabels)
 
 
 # Generate answer with test data
@@ -58,7 +68,9 @@ Pml_test <- data.frame(testdata)
 test2Pred <- predict(modFit, newdata=Pml_test)
 test2Pred
 
-hist(test2Pred)
+predict(modFit, newdata=Pml_test,type="prob") # print probabilities
+
+
 # # Write answers
 # # pml_write_files = function(x){
 # #   n = length(x)
